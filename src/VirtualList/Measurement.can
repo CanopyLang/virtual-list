@@ -1,0 +1,138 @@
+module VirtualList.Measurement exposing
+    ( MeasureCache
+    , init
+    , recordMeasurement
+    , getMeasurement
+    , clearAll
+    , clearRange
+    , estimateTotal
+    , measureElement
+    )
+
+
+{-| Dynamic item measurement and caching for items whose height
+is not known until after rendering.
+
+When using `VirtualList.Dynamic` item heights, this module manages
+a cache of measured heights. Items are measured after render using
+`getBoundingClientRect` via FFI, and their heights are cached for
+subsequent scroll computations.
+
+# Cache
+@docs MeasureCache, init, recordMeasurement, getMeasurement, clearAll, clearRange
+
+# Estimation
+@docs estimateTotal
+
+# Measurement Commands
+@docs measureElement
+
+-}
+
+
+import Dict exposing (Dict)
+import Task
+import Browser.Dom as Dom
+
+
+-- CACHE
+
+
+{-| Opaque cache of measured item heights, keyed by item index. -}
+type MeasureCache
+    = MeasureCache (Dict Int Float)
+
+
+{-| Initialize an empty measurement cache. -}
+init : MeasureCache
+init =
+    MeasureCache Dict.empty
+
+
+{-| Record a measured height for the item at the given index. -}
+recordMeasurement : Int -> Float -> MeasureCache -> MeasureCache
+recordMeasurement index height (MeasureCache cache) =
+    MeasureCache (Dict.insert index height cache)
+
+
+{-| Look up a cached measurement for the item at the given index. -}
+getMeasurement : Int -> MeasureCache -> Maybe Float
+getMeasurement index (MeasureCache cache) =
+    Dict.get index cache
+
+
+{-| Clear all cached measurements.
+Call this when the underlying data changes entirely.
+-}
+clearAll : MeasureCache -> MeasureCache
+clearAll _ =
+    MeasureCache Dict.empty
+
+
+{-| Clear cached measurements for a range of indices (inclusive).
+Call this when items are inserted or removed in that range.
+-}
+clearRange : Int -> Int -> MeasureCache -> MeasureCache
+clearRange start end (MeasureCache cache) =
+    MeasureCache (clearRangeHelper start end cache)
+
+
+clearRangeHelper : Int -> Int -> Dict Int Float -> Dict Int Float
+clearRangeHelper idx end cache =
+    if idx > end then
+        cache
+    else
+        clearRangeHelper (idx + 1) end (Dict.remove idx cache)
+
+
+{-| Estimate total height using the average of measured items.
+
+Given the total number of items and a default height for unmeasured
+items, computes an estimate of total content height. Uses the average
+of all measured items for unmeasured ones if any measurements exist.
+-}
+estimateTotal : Int -> MeasureCache -> Float -> Float
+estimateTotal totalCount (MeasureCache cache) defaultHeight =
+    let
+        measured =
+            Dict.toList cache
+
+        measuredCount =
+            List.length measured
+    in
+    if measuredCount == 0 then
+        toFloat totalCount * defaultHeight
+    else
+        let
+            measuredSum =
+                List.foldl (\pair acc -> acc + Tuple.second pair) 0 measured
+
+            avgHeight =
+                measuredSum / toFloat measuredCount
+
+            unmeasuredCount =
+                totalCount - measuredCount
+        in
+        measuredSum + toFloat unmeasuredCount * avgHeight
+
+
+-- MEASUREMENT COMMANDS
+
+
+{-| Command to measure a rendered element's height by its DOM id.
+
+After the measurement completes, the resulting height is passed to the
+provided message constructor. Uses `Browser.Dom.getElement` internally.
+-}
+measureElement : String -> (Float -> msg) -> msg -> Cmd msg
+measureElement elementId toMsg fallback =
+    Dom.getElement elementId
+        |> Task.attempt
+            (\result ->
+                case result of
+                    Ok element ->
+                        toMsg element.element.height
+
+                    Err _ ->
+                        fallback
+            )

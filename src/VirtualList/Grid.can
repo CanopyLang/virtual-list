@@ -1,0 +1,461 @@
+module VirtualList.Grid exposing
+    ( Config
+    , RowHeight(..)
+    , ColumnWidth(..)
+    , GridScrollEvent
+    , GridState
+    , GridVirtualItem
+    , GridVirtualRange
+    , init
+    , onScroll
+    , compute
+    , view
+    )
+
+
+{-| Two-dimensional grid virtualization for rendering large data grids.
+
+Virtualizes both rows and columns, rendering only the cells visible
+in the viewport plus a configurable overscan buffer in each direction.
+
+# State
+@docs GridState, init, onScroll
+
+# Configuration
+@docs Config, RowHeight, ColumnWidth, GridScrollEvent
+
+# Computation
+@docs compute, GridVirtualItem, GridVirtualRange
+
+# Rendering
+@docs view
+
+-}
+
+
+import Array exposing (Array)
+import Html exposing (Html)
+import Html.Attributes
+import Html.Events
+import Json.Decode as Decode
+
+
+-- STATE
+
+
+{-| Opaque state for the grid virtualizer. Tracks both vertical and
+horizontal scroll positions.
+-}
+type GridState
+    = GridState { scrollTop : Float, scrollLeft : Float }
+
+
+{-| Initialize grid virtualizer state at origin (0, 0). -}
+init : GridState
+init =
+    GridState { scrollTop = 0, scrollLeft = 0 }
+
+
+{-| Grid scroll event data with both vertical and horizontal positions. -}
+type alias GridScrollEvent =
+    { scrollTop : Float
+    , scrollLeft : Float
+    , scrollHeight : Float
+    , scrollWidth : Float
+    , clientHeight : Float
+    , clientWidth : Float
+    }
+
+
+{-| Update grid state from a scroll event. -}
+onScroll : GridScrollEvent -> GridState -> GridState
+onScroll event _ =
+    GridState { scrollTop = event.scrollTop, scrollLeft = event.scrollLeft }
+
+
+-- CONFIGURATION
+
+
+{-| Configuration for a virtual grid.
+
+  - `items`: 2D data as an array of rows, each row an array of columns
+  - `rowHeight`: How to determine row heights
+  - `columnWidth`: How to determine column widths
+  - `containerHeight`: Viewport height in pixels
+  - `containerWidth`: Viewport width in pixels
+  - `overscanRows`: Extra rows to render above and below
+  - `overscanColumns`: Extra columns to render left and right
+  - `onScroll`: Message constructor for grid scroll events
+  - `scrollState`: Current grid virtualizer state
+
+-}
+type alias Config data msg =
+    { items : Array (Array data)
+    , rowHeight : RowHeight data
+    , columnWidth : ColumnWidth data
+    , containerHeight : Float
+    , containerWidth : Float
+    , overscanRows : Int
+    , overscanColumns : Int
+    , onScroll : GridScrollEvent -> msg
+    , scrollState : GridState
+    }
+
+
+{-| How row heights are determined.
+
+  - `FixedRowHeight`: All rows have the same height
+  - `VariableRowHeight`: Height varies per row index
+
+-}
+type RowHeight data
+    = FixedRowHeight Float
+    | VariableRowHeight (Int -> Float)
+
+
+{-| How column widths are determined.
+
+  - `FixedColumnWidth`: All columns have the same width
+  - `VariableColumnWidth`: Width varies per column index
+
+-}
+type ColumnWidth data
+    = FixedColumnWidth Float
+    | VariableColumnWidth (Int -> Float)
+
+
+-- VIRTUAL ITEMS
+
+
+{-| A virtual grid cell with computed position.
+
+  - `rowIndex`: Row index in the original data
+  - `columnIndex`: Column index in the original data
+  - `item`: The cell data
+  - `top`: Top position in pixels
+  - `left`: Left position in pixels
+  - `width`: Cell width in pixels
+  - `height`: Cell height in pixels
+
+-}
+type alias GridVirtualItem data =
+    { rowIndex : Int
+    , columnIndex : Int
+    , item : data
+    , top : Float
+    , left : Float
+    , width : Float
+    , height : Float
+    }
+
+
+{-| Computed grid virtualization result.
+
+  - `items`: Cells to render (visible plus overscan)
+  - `totalHeight`: Total scrollable height
+  - `totalWidth`: Total scrollable width
+  - `visibleRowRange`: Tuple of first and last visible row indices
+  - `visibleColumnRange`: Tuple of first and last visible column indices
+
+-}
+type alias GridVirtualRange data =
+    { items : List (GridVirtualItem data)
+    , totalHeight : Float
+    , totalWidth : Float
+    , visibleRowRange : ( Int, Int )
+    , visibleColumnRange : ( Int, Int )
+    }
+
+
+-- COMPUTE
+
+
+{-| Compute which grid cells should be rendered and their positions. -}
+compute : Config data msg -> GridVirtualRange data
+compute config =
+    let
+        rowCount =
+            Array.length config.items
+
+        colCount =
+            getColumnCount config.items
+    in
+    if rowCount == 0 || colCount == 0 then
+        { items = []
+        , totalHeight = 0
+        , totalWidth = 0
+        , visibleRowRange = ( 0, 0 )
+        , visibleColumnRange = ( 0, 0 )
+        }
+    else
+        computeGridRange config rowCount colCount
+
+
+getColumnCount : Array (Array data) -> Int
+getColumnCount items =
+    case Array.get 0 items of
+        Just firstRow ->
+            Array.length firstRow
+
+        Nothing ->
+            0
+
+
+computeGridRange : Config data msg -> Int -> Int -> GridVirtualRange data
+computeGridRange config rowCount colCount =
+    let
+        (GridState gs) =
+            config.scrollState
+
+        rowHeightFn =
+            resolveRowHeightFn config
+
+        colWidthFn =
+            resolveColWidthFn config
+
+        totalH =
+            computeTotalDim rowHeightFn rowCount
+
+        totalW =
+            computeTotalDim colWidthFn colCount
+
+        visRowStart =
+            findDimStart rowHeightFn gs.scrollTop rowCount
+
+        visRowEnd =
+            findDimEnd rowHeightFn gs.scrollTop config.containerHeight visRowStart rowCount
+
+        visColStart =
+            findDimStart colWidthFn gs.scrollLeft colCount
+
+        visColEnd =
+            findDimEnd colWidthFn gs.scrollLeft config.containerWidth visColStart colCount
+
+        renderRowStart =
+            max 0 (visRowStart - config.overscanRows)
+
+        renderRowEnd =
+            min (rowCount - 1) (visRowEnd + config.overscanRows)
+
+        renderColStart =
+            max 0 (visColStart - config.overscanColumns)
+
+        renderColEnd =
+            min (colCount - 1) (visColEnd + config.overscanColumns)
+
+        virtualItems =
+            buildGridItems config rowHeightFn colWidthFn renderRowStart renderRowEnd renderColStart renderColEnd
+    in
+    { items = virtualItems
+    , totalHeight = totalH
+    , totalWidth = totalW
+    , visibleRowRange = ( visRowStart, visRowEnd )
+    , visibleColumnRange = ( visColStart, visColEnd )
+    }
+
+
+resolveRowHeightFn : Config data msg -> (Int -> Float)
+resolveRowHeightFn config =
+    case config.rowHeight of
+        FixedRowHeight h ->
+            \_ -> h
+
+        VariableRowHeight fn ->
+            fn
+
+
+resolveColWidthFn : Config data msg -> (Int -> Float)
+resolveColWidthFn config =
+    case config.columnWidth of
+        FixedColumnWidth w ->
+            \_ -> w
+
+        VariableColumnWidth fn ->
+            fn
+
+
+computeTotalDim : (Int -> Float) -> Int -> Float
+computeTotalDim dimFn count =
+    computeTotalDimHelper dimFn 0 count 0
+
+
+computeTotalDimHelper : (Int -> Float) -> Int -> Int -> Float -> Float
+computeTotalDimHelper dimFn idx count acc =
+    if idx >= count then
+        acc
+    else
+        computeTotalDimHelper dimFn (idx + 1) count (acc + dimFn idx)
+
+
+findDimStart : (Int -> Float) -> Float -> Int -> Int
+findDimStart dimFn scrollPos count =
+    findDimStartHelper dimFn scrollPos 0 count 0
+
+
+findDimStartHelper : (Int -> Float) -> Float -> Int -> Int -> Float -> Int
+findDimStartHelper dimFn scrollPos idx count offset =
+    if idx >= count then
+        max 0 (count - 1)
+    else
+        let
+            d =
+                dimFn idx
+
+            nextOffset =
+                offset + d
+        in
+        if nextOffset > scrollPos then
+            idx
+        else
+            findDimStartHelper dimFn scrollPos (idx + 1) count nextOffset
+
+
+findDimEnd : (Int -> Float) -> Float -> Float -> Int -> Int -> Int
+findDimEnd dimFn scrollPos containerSize startIdx count =
+    let
+        endEdge =
+            scrollPos + containerSize
+    in
+    findDimEndHelper dimFn endEdge startIdx count (computeDimOffset dimFn startIdx)
+
+
+computeDimOffset : (Int -> Float) -> Int -> Float
+computeDimOffset dimFn targetIdx =
+    computeDimOffsetHelper dimFn 0 targetIdx 0
+
+
+computeDimOffsetHelper : (Int -> Float) -> Int -> Int -> Float -> Float
+computeDimOffsetHelper dimFn idx targetIdx acc =
+    if idx >= targetIdx then
+        acc
+    else
+        computeDimOffsetHelper dimFn (idx + 1) targetIdx (acc + dimFn idx)
+
+
+findDimEndHelper : (Int -> Float) -> Float -> Int -> Int -> Float -> Int
+findDimEndHelper dimFn endEdge idx count offset =
+    if idx >= count then
+        max 0 (count - 1)
+    else
+        if offset >= endEdge then
+            idx
+        else
+            findDimEndHelper dimFn endEdge (idx + 1) count (offset + dimFn idx)
+
+
+buildGridItems : Config data msg -> (Int -> Float) -> (Int -> Float) -> Int -> Int -> Int -> Int -> List (GridVirtualItem data)
+buildGridItems config rowHeightFn colWidthFn rowStart rowEnd colStart colEnd =
+    buildGridRowLoop config rowHeightFn colWidthFn rowStart rowEnd colStart colEnd []
+
+
+buildGridRowLoop : Config data msg -> (Int -> Float) -> (Int -> Float) -> Int -> Int -> Int -> Int -> List (GridVirtualItem data) -> List (GridVirtualItem data)
+buildGridRowLoop config rowHeightFn colWidthFn rowIdx rowEnd colStart colEnd acc =
+    if rowIdx > rowEnd then
+        List.reverse acc
+    else
+        let
+            rowTop =
+                computeDimOffset rowHeightFn rowIdx
+
+            rowH =
+                rowHeightFn rowIdx
+
+            rowItems =
+                case Array.get rowIdx config.items of
+                    Just row ->
+                        buildGridColLoop row rowHeightFn colWidthFn rowIdx colStart colEnd rowTop rowH []
+
+                    Nothing ->
+                        []
+
+            newAcc =
+                List.foldl (\item a -> item :: a) acc rowItems
+        in
+        buildGridRowLoop config rowHeightFn colWidthFn (rowIdx + 1) rowEnd colStart colEnd newAcc
+
+
+buildGridColLoop : Array data -> (Int -> Float) -> (Int -> Float) -> Int -> Int -> Int -> Float -> Float -> List (GridVirtualItem data) -> List (GridVirtualItem data)
+buildGridColLoop row rowHeightFn colWidthFn rowIdx colIdx colEnd rowTop rowH acc =
+    if colIdx > colEnd then
+        List.reverse acc
+    else
+        let
+            colLeft =
+                computeDimOffset colWidthFn colIdx
+
+            colW =
+                colWidthFn colIdx
+        in
+        case Array.get colIdx row of
+            Just item ->
+                let
+                    gItem =
+                        { rowIndex = rowIdx
+                        , columnIndex = colIdx
+                        , item = item
+                        , top = rowTop
+                        , left = colLeft
+                        , width = colW
+                        , height = rowH
+                        }
+                in
+                buildGridColLoop row rowHeightFn colWidthFn rowIdx (colIdx + 1) colEnd rowTop rowH (gItem :: acc)
+
+            Nothing ->
+                buildGridColLoop row rowHeightFn colWidthFn rowIdx (colIdx + 1) colEnd rowTop rowH acc
+
+
+-- VIEW
+
+
+{-| Render a virtual grid.
+
+Items are positioned absolutely within a spacer div sized to the total
+scrollable area. The container scrolls both vertically and horizontally.
+-}
+view : Config data msg -> List (Html.Attribute msg) -> (GridVirtualItem data -> Html msg) -> Html msg
+view config attrs renderItem =
+    let
+        range =
+            compute config
+
+        scrollDecoder =
+            gridScrollDecoder config.onScroll
+
+        containerAttrs =
+            Html.Attributes.style "overflow" "auto"
+                :: Html.Events.on "scroll" scrollDecoder
+                :: attrs
+
+        spacerAttrs =
+            [ Html.Attributes.style "height" (String.fromFloat range.totalHeight ++ "px")
+            , Html.Attributes.style "width" (String.fromFloat range.totalWidth ++ "px")
+            , Html.Attributes.style "position" "relative"
+            ]
+
+        renderedItems =
+            List.map renderItem range.items
+    in
+    Html.div containerAttrs
+        [ Html.div spacerAttrs renderedItems ]
+
+
+gridScrollDecoder : (GridScrollEvent -> msg) -> Decode.Decoder msg
+gridScrollDecoder toMsg =
+    Decode.map6
+        (\st sl sh sw ch cw ->
+            toMsg
+                { scrollTop = st
+                , scrollLeft = sl
+                , scrollHeight = sh
+                , scrollWidth = sw
+                , clientHeight = ch
+                , clientWidth = cw
+                }
+        )
+        (Decode.at [ "target", "scrollTop" ] Decode.float)
+        (Decode.at [ "target", "scrollLeft" ] Decode.float)
+        (Decode.at [ "target", "scrollHeight" ] Decode.float)
+        (Decode.at [ "target", "scrollWidth" ] Decode.float)
+        (Decode.at [ "target", "clientHeight" ] Decode.float)
+        (Decode.at [ "target", "clientWidth" ] Decode.float)

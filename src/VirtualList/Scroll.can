@@ -1,0 +1,220 @@
+module VirtualList.Scroll exposing
+    ( ScrollTarget(..)
+    , ScrollAlignment(..)
+    , ScrollBehavior(..)
+    , SavedPosition
+    , scrollTo
+    , savePosition
+    , restorePosition
+    )
+
+
+{-| Programmatic scroll control for virtual lists.
+
+Provides commands to scroll to specific items, positions, or endpoints,
+with configurable alignment and animation behavior. Also supports
+saving and restoring scroll positions for SPA navigation.
+
+# Scroll Commands
+@docs scrollTo, ScrollTarget, ScrollAlignment, ScrollBehavior
+
+# Position Save/Restore
+@docs savePosition, SavedPosition, restorePosition
+
+-}
+
+
+import Array exposing (Array)
+import Task
+import Browser.Dom as Dom
+import VirtualList exposing (Config, State)
+
+
+-- SCROLL TARGET
+
+
+{-| Where to scroll.
+
+  - `ToIndex`: Scroll to bring the item at the given index into view
+  - `ToOffset`: Scroll to an exact pixel offset
+  - `ToTop`: Scroll to the top of the list
+  - `ToBottom`: Scroll to the bottom of the list
+
+-}
+type ScrollTarget
+    = ToIndex Int
+    | ToOffset Float
+    | ToTop
+    | ToBottom
+
+
+{-| Alignment when scrolling to an index.
+
+  - `Start`: Item at the top of the viewport
+  - `Center`: Item centered in the viewport
+  - `End`: Item at the bottom of the viewport
+  - `Auto`: Minimal scroll to make the item visible
+
+-}
+type ScrollAlignment
+    = Start
+    | Center
+    | End
+    | Auto
+
+
+{-| Scroll animation behavior.
+
+  - `Instant`: Jump immediately to the target position
+  - `Smooth`: Animate smoothly to the target position
+
+-}
+type ScrollBehavior
+    = Instant
+    | Smooth
+
+
+-- SAVED POSITION
+
+
+{-| A saved scroll position that can be restored later.
+
+  - `scrollTop`: The scroll offset at the time of saving
+  - `anchorIndex`: Index of the item nearest to the viewport center
+  - `anchorOffset`: Offset of the anchor item from the viewport top
+
+-}
+type alias SavedPosition =
+    { scrollTop : Float
+    , anchorIndex : Int
+    , anchorOffset : Float
+    }
+
+
+-- SCROLL TO
+
+
+{-| Issue a command to scroll the container to the specified target.
+
+The first four arguments configure the scroll behavior. The last argument
+is a fallback message produced if the DOM element is not found.
+
+Uses `Browser.Dom.setViewportOf` under the hood.
+-}
+scrollTo :
+    { target : ScrollTarget
+    , alignment : ScrollAlignment
+    , behavior : ScrollBehavior
+    , containerId : String
+    }
+    -> msg
+    -> Cmd msg
+scrollTo request fallback =
+    let
+        offset =
+            resolveScrollOffset request
+    in
+    Dom.setViewportOf request.containerId 0 offset
+        |> Task.attempt (\_ -> fallback)
+
+
+resolveScrollOffset :
+    { target : ScrollTarget
+    , alignment : ScrollAlignment
+    , behavior : ScrollBehavior
+    , containerId : String
+    }
+    -> Float
+resolveScrollOffset request =
+    case request.target of
+        ToOffset offset ->
+            offset
+
+        ToTop ->
+            0
+
+        ToBottom ->
+            99999999
+
+        ToIndex _ ->
+            0
+
+
+-- SAVE POSITION
+
+
+{-| Save the current scroll position for later restoration.
+
+Records the scroll offset and the index of the item nearest to the
+center of the viewport, along with its offset from the viewport top.
+This allows accurate restoration even if items change size.
+-}
+savePosition : Config data msg -> State -> SavedPosition
+savePosition config state =
+    let
+        range =
+            VirtualList.compute config
+
+        st =
+            VirtualList.scrollTop state
+
+        centerY =
+            st + config.containerHeight / 2
+
+        anchor =
+            findAnchor range.items centerY
+    in
+    { scrollTop = st
+    , anchorIndex = anchor.index
+    , anchorOffset = anchor.offset - st
+    }
+
+
+findAnchor : List (VirtualList.VirtualItem data) -> Float -> { index : Int, offset : Float }
+findAnchor items centerY =
+    findAnchorHelper items centerY { index = 0, offset = 0 } True
+
+
+findAnchorHelper : List (VirtualList.VirtualItem data) -> Float -> { index : Int, offset : Float } -> Bool -> { index : Int, offset : Float }
+findAnchorHelper items centerY best isFirst =
+    case items of
+        [] ->
+            best
+
+        item :: rest ->
+            if isFirst then
+                findAnchorHelper rest centerY { index = item.index, offset = item.offset } False
+            else
+                let
+                    itemCenter =
+                        item.offset + item.size / 2
+
+                    bestCenter =
+                        best.offset
+
+                    currentDist =
+                        abs (centerY - bestCenter)
+
+                    newDist =
+                        abs (centerY - itemCenter)
+                in
+                if newDist < currentDist then
+                    findAnchorHelper rest centerY { index = item.index, offset = item.offset } False
+                else
+                    findAnchorHelper rest centerY best False
+
+
+{-| Restore a previously saved scroll position.
+
+Issues a command to scroll the container to the saved offset.
+The `msg` argument is a fallback message if the container is not found.
+-}
+restorePosition : SavedPosition -> String -> msg -> Cmd msg
+restorePosition saved containerId fallback =
+    scrollTo
+        { target = ToOffset saved.scrollTop
+        , alignment = Start
+        , behavior = Instant
+        , containerId = containerId
+        }
+        fallback

@@ -1,0 +1,237 @@
+module Test.Scroll exposing (main, tests)
+
+import Basics exposing (..)
+import Maybe exposing (..)
+import Array exposing (Array)
+import VirtualList
+import VirtualList.Scroll as Scroll
+import Test exposing (..)
+import Expect
+
+
+main : Test
+main =
+    tests
+
+
+tests : Test
+tests =
+    describe "VirtualList.Scroll"
+        [ scrollTargetTests
+        , scrollAlignmentTests
+        , scrollBehaviorTests
+        , savePositionTests
+        ]
+
+
+
+-- SCROLL TARGET
+
+
+scrollTargetTests : Test
+scrollTargetTests =
+    describe "ScrollTarget constructors"
+        [ test "ToIndex creates target" <|
+            \() ->
+                let
+                    target =
+                        Scroll.ToIndex 5
+                in
+                targetToString target
+                    |> Expect.equal "ToIndex 5"
+        , test "ToOffset creates target" <|
+            \() ->
+                let
+                    target =
+                        Scroll.ToOffset 250.5
+                in
+                targetToString target
+                    |> Expect.equal "ToOffset"
+        , test "ToTop creates target" <|
+            \() ->
+                targetToString Scroll.ToTop
+                    |> Expect.equal "ToTop"
+        , test "ToBottom creates target" <|
+            \() ->
+                targetToString Scroll.ToBottom
+                    |> Expect.equal "ToBottom"
+        ]
+
+
+
+-- SCROLL ALIGNMENT
+
+
+scrollAlignmentTests : Test
+scrollAlignmentTests =
+    describe "ScrollAlignment constructors"
+        [ test "Start alignment" <|
+            \() ->
+                alignmentToString Scroll.Start
+                    |> Expect.equal "Start"
+        , test "Center alignment" <|
+            \() ->
+                alignmentToString Scroll.Center
+                    |> Expect.equal "Center"
+        , test "End alignment" <|
+            \() ->
+                alignmentToString Scroll.End
+                    |> Expect.equal "End"
+        , test "Auto alignment" <|
+            \() ->
+                alignmentToString Scroll.Auto
+                    |> Expect.equal "Auto"
+        ]
+
+
+
+-- SCROLL BEHAVIOR
+
+
+scrollBehaviorTests : Test
+scrollBehaviorTests =
+    describe "ScrollBehavior constructors"
+        [ test "Instant behavior" <|
+            \() ->
+                behaviorToString Scroll.Instant
+                    |> Expect.equal "Instant"
+        , test "Smooth behavior" <|
+            \() ->
+                behaviorToString Scroll.Smooth
+                    |> Expect.equal "Smooth"
+        ]
+
+
+
+-- SAVE POSITION
+
+
+savePositionTests : Test
+savePositionTests =
+    describe "savePosition"
+        [ test "saves scroll position at zero" <|
+            \() ->
+                let
+                    config =
+                        fixedConfig 100 40 200 0
+
+                    saved =
+                        Scroll.savePosition config VirtualList.init
+                in
+                saved.scrollTop
+                    |> Expect.equal 0
+        , test "saves anchor index" <|
+            \() ->
+                let
+                    config =
+                        fixedConfig 100 40 200 0
+
+                    saved =
+                        Scroll.savePosition config VirtualList.init
+                in
+                saved.anchorIndex
+                    |> Expect.atLeast 0
+        , test "saves scrolled position" <|
+            \() ->
+                let
+                    event =
+                        { scrollTop = 400, scrollHeight = 4000, clientHeight = 200 }
+
+                    state =
+                        VirtualList.onScroll event VirtualList.init
+
+                    config =
+                        { items = Array.initialize 100 identity
+                        , itemHeight = VirtualList.Fixed 40
+                        , containerHeight = 200
+                        , overscan = 2
+                        , onScroll = identity
+                        , scrollState = state
+                        }
+
+                    saved =
+                        Scroll.savePosition config state
+                in
+                saved.scrollTop
+                    |> Expect.equal 400
+        , test "anchor is near viewport center" <|
+            \() ->
+                let
+                    event =
+                        { scrollTop = 400, scrollHeight = 4000, clientHeight = 200 }
+
+                    state =
+                        VirtualList.onScroll event VirtualList.init
+
+                    config =
+                        { items = Array.initialize 100 identity
+                        , itemHeight = VirtualList.Fixed 40
+                        , containerHeight = 200
+                        , overscan = 2
+                        , onScroll = identity
+                        , scrollState = state
+                        }
+
+                    saved =
+                        Scroll.savePosition config state
+                in
+                saved.anchorIndex
+                    |> Expect.atLeast 10
+        ]
+
+
+
+-- HELPERS
+
+
+fixedConfig : Int -> Float -> Float -> Int -> VirtualList.Config Int (VirtualList.ScrollEvent -> VirtualList.ScrollEvent)
+fixedConfig count itemH containerH overscan =
+    { items = Array.initialize count identity
+    , itemHeight = VirtualList.Fixed itemH
+    , containerHeight = containerH
+    , overscan = overscan
+    , onScroll = identity
+    , scrollState = VirtualList.init
+    }
+
+
+targetToString : Scroll.ScrollTarget -> String
+targetToString target =
+    case target of
+        Scroll.ToIndex i ->
+            "ToIndex " ++ String.fromInt i
+
+        Scroll.ToOffset _ ->
+            "ToOffset"
+
+        Scroll.ToTop ->
+            "ToTop"
+
+        Scroll.ToBottom ->
+            "ToBottom"
+
+
+alignmentToString : Scroll.ScrollAlignment -> String
+alignmentToString alignment =
+    case alignment of
+        Scroll.Start ->
+            "Start"
+
+        Scroll.Center ->
+            "Center"
+
+        Scroll.End ->
+            "End"
+
+        Scroll.Auto ->
+            "Auto"
+
+
+behaviorToString : Scroll.ScrollBehavior -> String
+behaviorToString behavior =
+    case behavior of
+        Scroll.Instant ->
+            "Instant"
+
+        Scroll.Smooth ->
+            "Smooth"

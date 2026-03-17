@@ -1,0 +1,102 @@
+module VirtualList.StickyHeader exposing
+    ( Config
+    , stickyHeader
+    , viewStickyHeader
+    )
+
+
+{-| Sticky group headers that stay pinned at the top while scrolling
+through grouped list data.
+
+When a virtual list contains groups of items with headers, this module
+determines which group header should be "stuck" at the top of the
+viewport based on the current scroll position.
+
+# Configuration
+@docs Config
+
+# Computation
+@docs stickyHeader
+
+# Rendering
+@docs viewStickyHeader
+
+-}
+
+
+import Html exposing (Html)
+import Html.Attributes
+import VirtualList
+
+
+-- CONFIGURATION
+
+
+{-| Configuration for sticky headers.
+
+  - `groupBy`: Function to extract a group key from an item
+  - `viewHeader`: Function to render a group header
+  - `headerHeight`: Height of sticky headers in pixels
+
+-}
+type alias Config data header msg =
+    { groupBy : data -> header
+    , viewHeader : header -> Html msg
+    , headerHeight : Float
+    }
+
+
+-- COMPUTATION
+
+
+{-| Determine which header should be stuck at the top of the viewport.
+
+Examines the first visible item in the virtual range and extracts its
+group key. Returns `Nothing` if the range is empty.
+-}
+stickyHeader :
+    Config data header msg
+    -> VirtualList.VirtualRange data
+    -> VirtualList.State
+    -> Maybe header
+stickyHeader config range _ =
+    findFirstVisibleHeader config range.items
+
+
+findFirstVisibleHeader : Config data header msg -> List (VirtualList.VirtualItem data) -> Maybe header
+findFirstVisibleHeader config items =
+    case items of
+        [] ->
+            Nothing
+
+        item :: _ ->
+            Just (config.groupBy item.item)
+
+
+-- VIEW
+
+
+{-| Render a sticky header overlay at the top of the list.
+
+If there is a stuck header, renders it in a `div` positioned at the
+top of the container with a fixed height. If there is no stuck header,
+renders nothing.
+-}
+viewStickyHeader :
+    Config data header msg
+    -> VirtualList.VirtualRange data
+    -> VirtualList.State
+    -> Html msg
+viewStickyHeader config range state =
+    case stickyHeader config range state of
+        Nothing ->
+            Html.text ""
+
+        Just header ->
+            Html.div
+                [ Html.Attributes.style "position" "sticky"
+                , Html.Attributes.style "top" "0"
+                , Html.Attributes.style "z-index" "1"
+                , Html.Attributes.style "height" (String.fromFloat config.headerHeight ++ "px")
+                ]
+                [ config.viewHeader header ]

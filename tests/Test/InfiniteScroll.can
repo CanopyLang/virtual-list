@@ -1,0 +1,192 @@
+module Test.InfiniteScroll exposing (main, tests)
+
+import Basics exposing (..)
+import Maybe exposing (..)
+import Array exposing (Array)
+import VirtualList
+import VirtualList.InfiniteScroll as IS
+import Test exposing (..)
+import Expect
+
+
+main : Test
+main =
+    tests
+
+
+tests : Test
+tests =
+    describe "VirtualList.InfiniteScroll"
+        [ shouldLoadMoreTests
+        , checkAndTriggerTests
+        ]
+
+
+
+-- SHOULD LOAD MORE
+
+
+shouldLoadMoreTests : Test
+shouldLoadMoreTests =
+    describe "shouldLoadMore"
+        [ test "true when near end and not loading" <|
+            \() ->
+                let
+                    config =
+                        { loadThreshold = 5
+                        , onLoadMore = "load"
+                        , isLoading = False
+                        , hasMore = True
+                        }
+
+                    range =
+                        makeRange 95 100
+                in
+                IS.shouldLoadMore config range 100
+                    |> Expect.equal True
+        , test "false when loading" <|
+            \() ->
+                let
+                    config =
+                        { loadThreshold = 5
+                        , onLoadMore = "load"
+                        , isLoading = True
+                        , hasMore = True
+                        }
+
+                    range =
+                        makeRange 95 100
+                in
+                IS.shouldLoadMore config range 100
+                    |> Expect.equal False
+        , test "false when no more data" <|
+            \() ->
+                let
+                    config =
+                        { loadThreshold = 5
+                        , onLoadMore = "load"
+                        , isLoading = False
+                        , hasMore = False
+                        }
+
+                    range =
+                        makeRange 95 100
+                in
+                IS.shouldLoadMore config range 100
+                    |> Expect.equal False
+        , test "false when far from end" <|
+            \() ->
+                let
+                    config =
+                        { loadThreshold = 5
+                        , onLoadMore = "load"
+                        , isLoading = False
+                        , hasMore = True
+                        }
+
+                    range =
+                        makeRange 10 20
+                in
+                IS.shouldLoadMore config range 100
+                    |> Expect.equal False
+        , test "true at exact threshold" <|
+            \() ->
+                let
+                    config =
+                        { loadThreshold = 10
+                        , onLoadMore = "load"
+                        , isLoading = False
+                        , hasMore = True
+                        }
+
+                    range =
+                        makeRange 90 95
+                in
+                IS.shouldLoadMore config range 100
+                    |> Expect.equal True
+        , test "true when at the very end" <|
+            \() ->
+                let
+                    config =
+                        { loadThreshold = 3
+                        , onLoadMore = "load"
+                        , isLoading = False
+                        , hasMore = True
+                        }
+
+                    range =
+                        makeRange 99 99
+                in
+                IS.shouldLoadMore config range 100
+                    |> Expect.equal True
+        ]
+
+
+
+-- CHECK AND TRIGGER
+
+
+checkAndTriggerTests : Test
+checkAndTriggerTests =
+    describe "checkAndTrigger"
+        [ test "returns Just msg when should load" <|
+            \() ->
+                let
+                    config =
+                        { loadThreshold = 5
+                        , onLoadMore = "load-more"
+                        , isLoading = False
+                        , hasMore = True
+                        }
+
+                    range =
+                        makeRange 96 99
+                in
+                IS.checkAndTrigger config range 100
+                    |> Expect.equal (Just "load-more")
+        , test "returns Nothing when should not load" <|
+            \() ->
+                let
+                    config =
+                        { loadThreshold = 5
+                        , onLoadMore = "load-more"
+                        , isLoading = False
+                        , hasMore = True
+                        }
+
+                    range =
+                        makeRange 10 20
+                in
+                IS.checkAndTrigger config range 100
+                    |> Expect.equal Nothing
+        , test "returns Nothing when loading" <|
+            \() ->
+                let
+                    config =
+                        { loadThreshold = 5
+                        , onLoadMore = "load-more"
+                        , isLoading = True
+                        , hasMore = True
+                        }
+
+                    range =
+                        makeRange 96 99
+                in
+                IS.checkAndTrigger config range 100
+                    |> Expect.equal Nothing
+        ]
+
+
+
+-- HELPERS
+
+
+makeRange : Int -> Int -> VirtualList.VirtualRange data
+makeRange visEndIdx endIdx =
+    { items = []
+    , totalHeight = 0
+    , startIndex = 0
+    , endIndex = endIdx
+    , visibleStartIndex = 0
+    , visibleEndIndex = visEndIdx
+    }

@@ -1,0 +1,75 @@
+module VirtualList.InfiniteScroll exposing
+    ( Config
+    , shouldLoadMore
+    , checkAndTrigger
+    )
+
+
+{-| Infinite scroll integration for virtual lists.
+
+Detects when the user is scrolling near the end of the list and
+triggers loading of additional data. Works composably with
+`VirtualList.Config` without modifying it.
+
+# Configuration
+@docs Config
+
+# Detection
+@docs shouldLoadMore, checkAndTrigger
+
+-}
+
+
+import Array exposing (Array)
+import VirtualList
+
+
+-- CONFIGURATION
+
+
+{-| Configuration for infinite scroll behavior.
+
+  - `loadThreshold`: Number of items from the end at which to trigger loading
+  - `onLoadMore`: Message to send when more data should be loaded
+  - `isLoading`: Whether a load is already in progress (prevents duplicates)
+  - `hasMore`: Whether more data exists to be loaded
+
+-}
+type alias Config msg =
+    { loadThreshold : Int
+    , onLoadMore : msg
+    , isLoading : Bool
+    , hasMore : Bool
+    }
+
+
+-- DETECTION
+
+
+{-| Check if more data should be loaded based on the current virtual range.
+
+Returns `True` when all conditions are met:
+  - `hasMore` is `True`
+  - `isLoading` is `False`
+  - The visible end index is within `loadThreshold` items of the total count
+
+-}
+shouldLoadMore : Config msg -> VirtualList.VirtualRange data -> Int -> Bool
+shouldLoadMore config range totalCount =
+    config.hasMore
+        && not config.isLoading
+        && (range.visibleEndIndex >= totalCount - config.loadThreshold)
+
+
+{-| Check the scroll position and return `Just msg` if loading should be
+triggered, or `Nothing` if no action is needed.
+
+This is a convenience function combining `shouldLoadMore` with the
+config's `onLoadMore` message.
+-}
+checkAndTrigger : Config msg -> VirtualList.VirtualRange data -> Int -> Maybe msg
+checkAndTrigger config range totalCount =
+    if shouldLoadMore config range totalCount then
+        Just config.onLoadMore
+    else
+        Nothing

@@ -1,0 +1,132 @@
+module Test.StickyHeader exposing (main, tests)
+
+import Basics exposing (..)
+import Maybe exposing (..)
+import Html exposing (Html)
+import VirtualList
+import VirtualList.StickyHeader as SH
+import Test exposing (..)
+import Expect
+
+
+main : Test
+main =
+    tests
+
+
+tests : Test
+tests =
+    describe "VirtualList.StickyHeader"
+        [ stickyHeaderTests
+        ]
+
+
+
+-- STICKY HEADER
+
+
+stickyHeaderTests : Test
+stickyHeaderTests =
+    describe "stickyHeader"
+        [ test "returns Nothing for empty range" <|
+            \() ->
+                let
+                    config =
+                        headerConfig
+
+                    range =
+                        emptyRange
+                in
+                SH.stickyHeader config range VirtualList.init
+                    |> Expect.equal Nothing
+        , test "returns first visible item group" <|
+            \() ->
+                let
+                    config =
+                        headerConfig
+
+                    range =
+                        rangeWithItems
+                            [ makeVItem 0 { name = "Alice", group = "A" }
+                            , makeVItem 1 { name = "Bob", group = "B" }
+                            ]
+                in
+                SH.stickyHeader config range VirtualList.init
+                    |> Expect.equal (Just "A")
+        , test "returns correct group when scrolled" <|
+            \() ->
+                let
+                    config =
+                        headerConfig
+
+                    range =
+                        rangeWithItems
+                            [ makeVItem 5 { name = "Charlie", group = "C" }
+                            , makeVItem 6 { name = "Dave", group = "C" }
+                            ]
+                in
+                SH.stickyHeader config range VirtualList.init
+                    |> Expect.equal (Just "C")
+        , test "single item range" <|
+            \() ->
+                let
+                    config =
+                        headerConfig
+
+                    range =
+                        rangeWithItems
+                            [ makeVItem 0 { name = "Eve", group = "E" } ]
+                in
+                SH.stickyHeader config range VirtualList.init
+                    |> Expect.equal (Just "E")
+        ]
+
+
+
+-- HELPERS
+
+
+type alias Person =
+    { name : String
+    , group : String
+    }
+
+
+headerConfig : SH.Config Person String msg
+headerConfig =
+    { groupBy = .group
+    , viewHeader = \g -> Html.text g
+    , headerHeight = 30
+    }
+
+
+emptyRange : VirtualList.VirtualRange Person
+emptyRange =
+    { items = []
+    , totalHeight = 0
+    , startIndex = 0
+    , endIndex = 0
+    , visibleStartIndex = 0
+    , visibleEndIndex = 0
+    }
+
+
+rangeWithItems : List (VirtualList.VirtualItem Person) -> VirtualList.VirtualRange Person
+rangeWithItems items =
+    { items = items
+    , totalHeight = 1000
+    , startIndex = 0
+    , endIndex = List.length items - 1
+    , visibleStartIndex = 0
+    , visibleEndIndex = List.length items - 1
+    }
+
+
+makeVItem : Int -> Person -> VirtualList.VirtualItem Person
+makeVItem idx person =
+    { index = idx
+    , item = person
+    , offset = toFloat (idx * 40)
+    , size = 40
+    , isOverscan = False
+    }

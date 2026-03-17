@@ -1,0 +1,348 @@
+module Test.Horizontal exposing (main, tests)
+
+import Basics exposing (..)
+import Array exposing (Array)
+import Maybe exposing (..)
+import List
+import VirtualList.Horizontal as H
+import Test exposing (..)
+import Expect
+
+
+main : Test
+main =
+    tests
+
+
+tests : Test
+tests =
+    describe "VirtualList.Horizontal"
+        [ initTests
+        , computeFixedWidthTests
+        , computeVariableWidthTests
+        , computeDynamicWidthTests
+        , overscanTests
+        , scrollTests
+        , edgeCaseTests
+        ]
+
+
+
+-- INIT
+
+
+initTests : Test
+initTests =
+    describe "init"
+        [ test "initial state exists" <|
+            \() ->
+                let
+                    config =
+                        fixedWidthConfig 10 100 500 0
+
+                    range =
+                        H.compute config
+                in
+                range.startIndex
+                    |> Expect.equal 0
+        ]
+
+
+
+-- FIXED WIDTH
+
+
+computeFixedWidthTests : Test
+computeFixedWidthTests =
+    describe "compute with fixed width"
+        [ test "computes correct total width" <|
+            \() ->
+                let
+                    config =
+                        fixedWidthConfig 20 100 500 0
+
+                    range =
+                        H.compute config
+                in
+                range.totalWidth
+                    |> Expect.equal 2000
+        , test "renders only visible items" <|
+            \() ->
+                let
+                    config =
+                        fixedWidthConfig 20 100 500 0
+
+                    range =
+                        H.compute config
+                in
+                List.length range.items
+                    |> Expect.equal 5
+        , test "items have correct offsets" <|
+            \() ->
+                let
+                    config =
+                        fixedWidthConfig 20 100 300 0
+
+                    range =
+                        H.compute config
+
+                    offsets =
+                        List.map .offset range.items
+                in
+                offsets
+                    |> Expect.equal [ 0, 100, 200 ]
+        , test "items have correct sizes" <|
+            \() ->
+                let
+                    config =
+                        fixedWidthConfig 10 80 240 0
+
+                    range =
+                        H.compute config
+
+                    sizes =
+                        List.map .size range.items
+                in
+                sizes
+                    |> Expect.equal [ 80, 80, 80 ]
+        , test "scrolled right shows correct range" <|
+            \() ->
+                let
+                    event =
+                        { scrollLeft = 500, scrollWidth = 2000, clientWidth = 300 }
+
+                    state =
+                        H.onScroll event H.init
+
+                    config =
+                        { items = Array.initialize 20 identity
+                        , itemWidth = H.FixedWidth 100
+                        , containerWidth = 300
+                        , overscan = 0
+                        , onScroll = identity
+                        , scrollState = state
+                        }
+
+                    range =
+                        H.compute config
+                in
+                range.startIndex
+                    |> Expect.equal 5
+        ]
+
+
+
+-- VARIABLE WIDTH
+
+
+computeVariableWidthTests : Test
+computeVariableWidthTests =
+    describe "compute with variable width"
+        [ test "computes correct total width" <|
+            \() ->
+                let
+                    items =
+                        Array.fromList [ 50, 80, 120, 60 ]
+
+                    config =
+                        variableWidthConfig items toFloat 400 0
+
+                    range =
+                        H.compute config
+                in
+                range.totalWidth
+                    |> Expect.equal 310
+        , test "renders all visible items" <|
+            \() ->
+                let
+                    items =
+                        Array.fromList [ 100, 100, 100 ]
+
+                    config =
+                        variableWidthConfig items toFloat 200 0
+
+                    range =
+                        H.compute config
+                in
+                List.length range.items
+                    |> Expect.equal 2
+        , test "items have correct variable offsets" <|
+            \() ->
+                let
+                    items =
+                        Array.fromList [ 50, 80, 120 ]
+
+                    config =
+                        variableWidthConfig items toFloat 500 0
+
+                    range =
+                        H.compute config
+
+                    offsets =
+                        List.map .offset range.items
+                in
+                offsets
+                    |> Expect.equal [ 0, 50, 130 ]
+        ]
+
+
+
+-- DYNAMIC WIDTH
+
+
+computeDynamicWidthTests : Test
+computeDynamicWidthTests =
+    describe "compute with dynamic width"
+        [ test "uses default width of 100" <|
+            \() ->
+                let
+                    config =
+                        { items = Array.initialize 10 identity
+                        , itemWidth = H.DynamicWidth
+                        , containerWidth = 300
+                        , overscan = 0
+                        , onScroll = identity
+                        , scrollState = H.init
+                        }
+
+                    range =
+                        H.compute config
+                in
+                range.totalWidth
+                    |> Expect.equal 1000
+        ]
+
+
+
+-- OVERSCAN
+
+
+overscanTests : Test
+overscanTests =
+    describe "overscan"
+        [ test "adds overscan items to the right" <|
+            \() ->
+                let
+                    config =
+                        fixedWidthConfig 20 100 300 2
+
+                    range =
+                        H.compute config
+                in
+                List.length range.items
+                    |> Expect.equal 5
+        , test "marks overscan items correctly" <|
+            \() ->
+                let
+                    config =
+                        fixedWidthConfig 20 100 300 2
+
+                    range =
+                        H.compute config
+
+                    overscanItems =
+                        List.filter .isOverscan range.items
+                in
+                List.length overscanItems
+                    |> Expect.equal 2
+        ]
+
+
+
+-- SCROLL
+
+
+scrollTests : Test
+scrollTests =
+    describe "onScroll"
+        [ test "updates horizontal scroll position" <|
+            \() ->
+                let
+                    event =
+                        { scrollLeft = 300, scrollWidth = 2000, clientWidth = 400 }
+
+                    state =
+                        H.onScroll event H.init
+
+                    config =
+                        { items = Array.initialize 20 identity
+                        , itemWidth = H.FixedWidth 100
+                        , containerWidth = 400
+                        , overscan = 0
+                        , onScroll = identity
+                        , scrollState = state
+                        }
+
+                    range =
+                        H.compute config
+                in
+                range.startIndex
+                    |> Expect.equal 3
+        ]
+
+
+
+-- EDGE CASES
+
+
+edgeCaseTests : Test
+edgeCaseTests =
+    describe "edge cases"
+        [ test "empty list" <|
+            \() ->
+                let
+                    config =
+                        fixedWidthConfig 0 100 500 0
+
+                    range =
+                        H.compute config
+                in
+                range.totalWidth
+                    |> Expect.equal 0
+        , test "single item" <|
+            \() ->
+                let
+                    config =
+                        fixedWidthConfig 1 100 500 0
+
+                    range =
+                        H.compute config
+                in
+                List.length range.items
+                    |> Expect.equal 1
+        , test "container wider than content" <|
+            \() ->
+                let
+                    config =
+                        fixedWidthConfig 3 100 1000 0
+
+                    range =
+                        H.compute config
+                in
+                List.length range.items
+                    |> Expect.equal 3
+        ]
+
+
+
+-- HELPERS
+
+
+fixedWidthConfig count itemW containerW overscan =
+    { items = Array.initialize count identity
+    , itemWidth = H.FixedWidth itemW
+    , containerWidth = containerW
+    , overscan = overscan
+    , onScroll = identity
+    , scrollState = H.init
+    }
+
+
+variableWidthConfig items widthFn containerW overscan =
+    { items = items
+    , itemWidth = H.VariableWidth widthFn
+    , containerWidth = containerW
+    , overscan = overscan
+    , onScroll = identity
+    , scrollState = H.init
+    }

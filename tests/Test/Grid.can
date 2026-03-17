@@ -1,0 +1,409 @@
+module Test.Grid exposing (main, tests)
+
+import Basics exposing (..)
+import Array exposing (Array)
+import Maybe exposing (..)
+import List
+import VirtualList.Grid as Grid
+import Test exposing (..)
+import Expect
+
+
+main : Test
+main =
+    tests
+
+
+tests : Test
+tests =
+    describe "VirtualList.Grid"
+        [ initTests
+        , computeFixedGridTests
+        , computeVariableGridTests
+        , overscanTests
+        , scrollTests
+        , edgeCaseTests
+        ]
+
+
+
+-- INIT
+
+
+initTests : Test
+initTests =
+    describe "init"
+        [ test "starts at origin" <|
+            \() ->
+                let
+                    config =
+                        fixedGridConfig 5 5 40 80 200 400 0 0
+
+                    range =
+                        Grid.compute config
+                in
+                Tuple.first range.visibleRowRange
+                    |> Expect.equal 0
+        ]
+
+
+
+-- FIXED GRID
+
+
+computeFixedGridTests : Test
+computeFixedGridTests =
+    describe "compute with fixed dimensions"
+        [ test "computes correct total height" <|
+            \() ->
+                let
+                    config =
+                        fixedGridConfig 10 5 40 80 200 400 0 0
+
+                    range =
+                        Grid.compute config
+                in
+                range.totalHeight
+                    |> Expect.equal 400
+        , test "computes correct total width" <|
+            \() ->
+                let
+                    config =
+                        fixedGridConfig 10 5 40 80 200 400 0 0
+
+                    range =
+                        Grid.compute config
+                in
+                range.totalWidth
+                    |> Expect.equal 400
+        , test "renders only visible cells" <|
+            \() ->
+                let
+                    config =
+                        fixedGridConfig 10 10 40 80 160 240 0 0
+
+                    range =
+                        Grid.compute config
+
+                    itemCount =
+                        List.length range.items
+                in
+                itemCount
+                    |> Expect.equal 12
+        , test "cells have correct positions" <|
+            \() ->
+                let
+                    config =
+                        fixedGridConfig 5 5 40 80 80 160 0 0
+
+                    range =
+                        Grid.compute config
+
+                    firstItem =
+                        List.head range.items
+                in
+                case firstItem of
+                    Just item ->
+                        item.top
+                            |> Expect.equal 0
+
+                    Nothing ->
+                        Expect.fail "Expected at least one item"
+        , test "cells have correct dimensions" <|
+            \() ->
+                let
+                    config =
+                        fixedGridConfig 5 5 40 80 80 160 0 0
+
+                    range =
+                        Grid.compute config
+
+                    firstItem =
+                        List.head range.items
+                in
+                case firstItem of
+                    Just item ->
+                        ( item.height, item.width )
+                            |> Expect.equal ( 40, 80 )
+
+                    Nothing ->
+                        Expect.fail "Expected at least one item"
+        , test "visible row range is correct" <|
+            \() ->
+                let
+                    config =
+                        fixedGridConfig 10 5 40 80 120 400 0 0
+
+                    range =
+                        Grid.compute config
+                in
+                range.visibleRowRange
+                    |> Expect.equal ( 0, 2 )
+        , test "visible column range is correct" <|
+            \() ->
+                let
+                    config =
+                        fixedGridConfig 5 10 40 80 200 240 0 0
+
+                    range =
+                        Grid.compute config
+                in
+                range.visibleColumnRange
+                    |> Expect.equal ( 0, 2 )
+        ]
+
+
+
+-- VARIABLE GRID
+
+
+computeVariableGridTests : Test
+computeVariableGridTests =
+    describe "compute with variable dimensions"
+        [ test "computes correct total with variable row heights" <|
+            \() ->
+                let
+                    items =
+                        Array.initialize 4 (\r -> Array.initialize 3 (\c -> r * 3 + c))
+
+                    heightFn =
+                        \idx -> toFloat ((idx + 1) * 20)
+
+                    config =
+                        { items = items
+                        , rowHeight = Grid.VariableRowHeight heightFn
+                        , columnWidth = Grid.FixedColumnWidth 100
+                        , containerHeight = 200
+                        , containerWidth = 300
+                        , overscanRows = 0
+                        , overscanColumns = 0
+                        , onScroll = identity
+                        , scrollState = Grid.init
+                        }
+
+                    range =
+                        Grid.compute config
+                in
+                range.totalHeight
+                    |> Expect.equal 200
+        , test "variable column widths produce correct total width" <|
+            \() ->
+                let
+                    items =
+                        Array.initialize 3 (\r -> Array.initialize 4 (\c -> r * 4 + c))
+
+                    widthFn =
+                        \idx -> toFloat ((idx + 1) * 30)
+
+                    config =
+                        { items = items
+                        , rowHeight = Grid.FixedRowHeight 40
+                        , columnWidth = Grid.VariableColumnWidth widthFn
+                        , containerHeight = 200
+                        , containerWidth = 200
+                        , overscanRows = 0
+                        , overscanColumns = 0
+                        , onScroll = identity
+                        , scrollState = Grid.init
+                        }
+
+                    range =
+                        Grid.compute config
+                in
+                range.totalWidth
+                    |> Expect.equal 300
+        ]
+
+
+
+-- OVERSCAN
+
+
+overscanTests : Test
+overscanTests =
+    describe "grid overscan"
+        [ test "adds overscan rows" <|
+            \() ->
+                let
+                    config =
+                        fixedGridConfig 20 5 40 80 120 400 2 0
+
+                    range =
+                        Grid.compute config
+
+                    rowCount =
+                        getUniqueRowCount range.items
+                in
+                rowCount
+                    |> Expect.atLeast 5
+        , test "adds overscan columns" <|
+            \() ->
+                let
+                    config =
+                        fixedGridConfig 5 20 40 80 200 240 0 2
+
+                    range =
+                        Grid.compute config
+
+                    colCount =
+                        getUniqueColCount range.items
+                in
+                colCount
+                    |> Expect.atLeast 5
+        ]
+
+
+
+-- SCROLL
+
+
+scrollTests : Test
+scrollTests =
+    describe "grid onScroll"
+        [ test "scrolling vertically changes visible rows" <|
+            \() ->
+                let
+                    event =
+                        { scrollTop = 200
+                        , scrollLeft = 0
+                        , scrollHeight = 800
+                        , scrollWidth = 400
+                        , clientHeight = 120
+                        , clientWidth = 400
+                        }
+
+                    state =
+                        Grid.onScroll event Grid.init
+
+                    config =
+                        { items = Array.initialize 20 (\r -> Array.initialize 5 (\c -> r * 5 + c))
+                        , rowHeight = Grid.FixedRowHeight 40
+                        , columnWidth = Grid.FixedColumnWidth 80
+                        , containerHeight = 120
+                        , containerWidth = 400
+                        , overscanRows = 0
+                        , overscanColumns = 0
+                        , onScroll = identity
+                        , scrollState = state
+                        }
+
+                    range =
+                        Grid.compute config
+                in
+                Tuple.first range.visibleRowRange
+                    |> Expect.equal 5
+        , test "scrolling horizontally changes visible columns" <|
+            \() ->
+                let
+                    event =
+                        { scrollTop = 0
+                        , scrollLeft = 320
+                        , scrollHeight = 200
+                        , scrollWidth = 1600
+                        , clientHeight = 200
+                        , clientWidth = 240
+                        }
+
+                    state =
+                        Grid.onScroll event Grid.init
+
+                    config =
+                        { items = Array.initialize 5 (\r -> Array.initialize 20 (\c -> r * 20 + c))
+                        , rowHeight = Grid.FixedRowHeight 40
+                        , columnWidth = Grid.FixedColumnWidth 80
+                        , containerHeight = 200
+                        , containerWidth = 240
+                        , overscanRows = 0
+                        , overscanColumns = 0
+                        , onScroll = identity
+                        , scrollState = state
+                        }
+
+                    range =
+                        Grid.compute config
+                in
+                Tuple.first range.visibleColumnRange
+                    |> Expect.equal 4
+        ]
+
+
+
+-- EDGE CASES
+
+
+edgeCaseTests : Test
+edgeCaseTests =
+    describe "edge cases"
+        [ test "empty grid" <|
+            \() ->
+                let
+                    config =
+                        { items = Array.empty
+                        , rowHeight = Grid.FixedRowHeight 40
+                        , columnWidth = Grid.FixedColumnWidth 80
+                        , containerHeight = 200
+                        , containerWidth = 400
+                        , overscanRows = 0
+                        , overscanColumns = 0
+                        , onScroll = identity
+                        , scrollState = Grid.init
+                        }
+
+                    range =
+                        Grid.compute config
+                in
+                List.length range.items
+                    |> Expect.equal 0
+        , test "single cell grid" <|
+            \() ->
+                let
+                    config =
+                        { items = Array.fromList [ Array.fromList [ 42 ] ]
+                        , rowHeight = Grid.FixedRowHeight 40
+                        , columnWidth = Grid.FixedColumnWidth 80
+                        , containerHeight = 200
+                        , containerWidth = 400
+                        , overscanRows = 0
+                        , overscanColumns = 0
+                        , onScroll = identity
+                        , scrollState = Grid.init
+                        }
+
+                    range =
+                        Grid.compute config
+                in
+                List.length range.items
+                    |> Expect.equal 1
+        ]
+
+
+
+-- HELPERS
+
+
+fixedGridConfig : Int -> Int -> Float -> Float -> Float -> Float -> Int -> Int -> Grid.Config Int (Grid.GridScrollEvent -> Grid.GridScrollEvent)
+fixedGridConfig rows cols rowH colW containerH containerW overscanR overscanC =
+    { items = Array.initialize rows (\r -> Array.initialize cols (\c -> r * cols + c))
+    , rowHeight = Grid.FixedRowHeight rowH
+    , columnWidth = Grid.FixedColumnWidth colW
+    , containerHeight = containerH
+    , containerWidth = containerW
+    , overscanRows = overscanR
+    , overscanColumns = overscanC
+    , onScroll = identity
+    , scrollState = Grid.init
+    }
+
+
+getUniqueRowCount : List (Grid.GridVirtualItem data) -> Int
+getUniqueRowCount items =
+    List.map .rowIndex items
+        |> List.foldl (\idx acc -> if List.member idx acc then acc else idx :: acc) []
+        |> List.length
+
+
+getUniqueColCount : List (Grid.GridVirtualItem data) -> Int
+getUniqueColCount items =
+    List.map .columnIndex items
+        |> List.foldl (\idx acc -> if List.member idx acc then acc else idx :: acc) []
+        |> List.length

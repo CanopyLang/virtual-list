@@ -1,0 +1,213 @@
+module Test.Measurement exposing (main, tests)
+
+import Basics exposing (..)
+import Maybe exposing (..)
+import VirtualList.Measurement as M
+import Test exposing (..)
+import Expect
+
+
+main : Test
+main =
+    tests
+
+
+tests : Test
+tests =
+    describe "VirtualList.Measurement"
+        [ initTests
+        , recordTests
+        , getTests
+        , clearAllTests
+        , clearRangeTests
+        , estimateTotalTests
+        ]
+
+
+
+-- INIT
+
+
+initTests : Test
+initTests =
+    describe "init"
+        [ test "empty cache returns Nothing for any index" <|
+            \() ->
+                M.getMeasurement 0 M.init
+                    |> Expect.equal Nothing
+        , test "empty cache returns Nothing for large index" <|
+            \() ->
+                M.getMeasurement 999 M.init
+                    |> Expect.equal Nothing
+        ]
+
+
+
+-- RECORD
+
+
+recordTests : Test
+recordTests =
+    describe "recordMeasurement"
+        [ test "records and retrieves a measurement" <|
+            \() ->
+                M.init
+                    |> M.recordMeasurement 5 42.5
+                    |> M.getMeasurement 5
+                    |> Expect.equal (Just 42.5)
+        , test "records multiple measurements" <|
+            \() ->
+                let
+                    cache =
+                        M.init
+                            |> M.recordMeasurement 0 30
+                            |> M.recordMeasurement 1 45
+                            |> M.recordMeasurement 2 60
+                in
+                ( M.getMeasurement 0 cache
+                , M.getMeasurement 1 cache
+                , M.getMeasurement 2 cache
+                )
+                    |> Expect.equal ( Just 30, Just 45, Just 60 )
+        , test "overwrites existing measurement" <|
+            \() ->
+                M.init
+                    |> M.recordMeasurement 3 50
+                    |> M.recordMeasurement 3 75
+                    |> M.getMeasurement 3
+                    |> Expect.equal (Just 75)
+        ]
+
+
+
+-- GET
+
+
+getTests : Test
+getTests =
+    describe "getMeasurement"
+        [ test "returns Nothing for unrecorded index" <|
+            \() ->
+                M.init
+                    |> M.recordMeasurement 0 30
+                    |> M.getMeasurement 1
+                    |> Expect.equal Nothing
+        , test "returns Just for recorded index" <|
+            \() ->
+                M.init
+                    |> M.recordMeasurement 7 88.5
+                    |> M.getMeasurement 7
+                    |> Expect.equal (Just 88.5)
+        ]
+
+
+
+-- CLEAR ALL
+
+
+clearAllTests : Test
+clearAllTests =
+    describe "clearAll"
+        [ test "clears all measurements" <|
+            \() ->
+                M.init
+                    |> M.recordMeasurement 0 30
+                    |> M.recordMeasurement 1 40
+                    |> M.clearAll
+                    |> M.getMeasurement 0
+                    |> Expect.equal Nothing
+        , test "cleared cache returns Nothing for all" <|
+            \() ->
+                let
+                    cache =
+                        M.init
+                            |> M.recordMeasurement 0 30
+                            |> M.recordMeasurement 5 50
+                            |> M.clearAll
+                in
+                ( M.getMeasurement 0 cache, M.getMeasurement 5 cache )
+                    |> Expect.equal ( Nothing, Nothing )
+        ]
+
+
+
+-- CLEAR RANGE
+
+
+clearRangeTests : Test
+clearRangeTests =
+    describe "clearRange"
+        [ test "clears measurements in range" <|
+            \() ->
+                let
+                    cache =
+                        M.init
+                            |> M.recordMeasurement 0 10
+                            |> M.recordMeasurement 1 20
+                            |> M.recordMeasurement 2 30
+                            |> M.recordMeasurement 3 40
+                            |> M.recordMeasurement 4 50
+                            |> M.clearRange 1 3
+                in
+                ( M.getMeasurement 0 cache
+                , M.getMeasurement 1 cache
+                , M.getMeasurement 2 cache
+                , M.getMeasurement 3 cache
+                , M.getMeasurement 4 cache
+                )
+                    |> Expect.equal ( Just 10, Nothing, Nothing, Nothing, Just 50 )
+        , test "clearing empty range is no-op" <|
+            \() ->
+                let
+                    cache =
+                        M.init
+                            |> M.recordMeasurement 0 10
+                            |> M.clearRange 5 3
+                in
+                M.getMeasurement 0 cache
+                    |> Expect.equal (Just 10)
+        ]
+
+
+
+-- ESTIMATE TOTAL
+
+
+estimateTotalTests : Test
+estimateTotalTests =
+    describe "estimateTotal"
+        [ test "uses default height when no measurements" <|
+            \() ->
+                M.estimateTotal 100 M.init 50
+                    |> Expect.equal 5000
+        , test "uses average of measured items" <|
+            \() ->
+                let
+                    cache =
+                        M.init
+                            |> M.recordMeasurement 0 40
+                            |> M.recordMeasurement 1 60
+                in
+                M.estimateTotal 10 cache 50
+                    |> Expect.equal 500
+        , test "all items measured gives exact total" <|
+            \() ->
+                let
+                    cache =
+                        M.init
+                            |> M.recordMeasurement 0 30
+                            |> M.recordMeasurement 1 40
+                            |> M.recordMeasurement 2 50
+                in
+                M.estimateTotal 3 cache 100
+                    |> Expect.equal 120
+        , test "single measurement" <|
+            \() ->
+                let
+                    cache =
+                        M.init
+                            |> M.recordMeasurement 0 80
+                in
+                M.estimateTotal 5 cache 50
+                    |> Expect.equal 400
+        ]

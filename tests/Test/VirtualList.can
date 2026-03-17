@@ -1,0 +1,614 @@
+module Test.VirtualList exposing (main, tests)
+
+import Basics exposing (..)
+import Array exposing (Array)
+import Maybe exposing (..)
+import List
+import VirtualList
+import Test exposing (..)
+import Expect
+
+
+main : Test
+main =
+    tests
+
+
+tests : Test
+tests =
+    describe "VirtualList"
+        [ initTests
+        , scrollTopTests
+        , isAtTopTests
+        , isAtBottomTests
+        , computeEmptyTests
+        , computeFixedTests
+        , computeVariableTests
+        , computeDynamicTests
+        , computeOverscanTests
+        , scrollEventTests
+        , edgeCaseTests
+        ]
+
+
+
+-- INIT
+
+
+initTests : Test
+initTests =
+    describe "init"
+        [ test "starts at scroll position zero" <|
+            \() ->
+                VirtualList.scrollTop VirtualList.init
+                    |> Expect.equal 0
+        , test "is at top initially" <|
+            \() ->
+                VirtualList.isAtTop VirtualList.init
+                    |> Expect.equal True
+        ]
+
+
+
+-- SCROLL TOP
+
+
+scrollTopTests : Test
+scrollTopTests =
+    describe "scrollTop"
+        [ test "returns zero for init state" <|
+            \() ->
+                VirtualList.scrollTop VirtualList.init
+                    |> Expect.equal 0
+        , test "returns scroll position after onScroll" <|
+            \() ->
+                let
+                    event =
+                        { scrollTop = 150, scrollHeight = 1000, clientHeight = 200 }
+
+                    state =
+                        VirtualList.onScroll event VirtualList.init
+                in
+                VirtualList.scrollTop state
+                    |> Expect.equal 150
+        ]
+
+
+
+-- IS AT TOP
+
+
+isAtTopTests : Test
+isAtTopTests =
+    describe "isAtTop"
+        [ test "true when scroll position is zero" <|
+            \() ->
+                VirtualList.isAtTop VirtualList.init
+                    |> Expect.equal True
+        , test "false when scrolled down" <|
+            \() ->
+                let
+                    event =
+                        { scrollTop = 50, scrollHeight = 1000, clientHeight = 200 }
+
+                    state =
+                        VirtualList.onScroll event VirtualList.init
+                in
+                VirtualList.isAtTop state
+                    |> Expect.equal False
+        ]
+
+
+
+-- IS AT BOTTOM
+
+
+isAtBottomTests : Test
+isAtBottomTests =
+    describe "isAtBottom"
+        [ test "false when at top" <|
+            \() ->
+                let
+                    config =
+                        fixedConfig 100 40 200 0
+                in
+                VirtualList.isAtBottom config VirtualList.init
+                    |> Expect.equal False
+        , test "true when scrolled to bottom" <|
+            \() ->
+                let
+                    totalHeight =
+                        10 * 40
+
+                    maxScroll =
+                        toFloat totalHeight - 200
+
+                    event =
+                        { scrollTop = maxScroll, scrollHeight = toFloat totalHeight, clientHeight = 200 }
+
+                    state =
+                        VirtualList.onScroll event VirtualList.init
+
+                    config =
+                        { items = Array.initialize 10 identity
+                        , itemHeight = VirtualList.Fixed 40
+                        , containerHeight = 200
+                        , overscan = 0
+                        , onScroll = identity
+                        , scrollState = state
+                        }
+                in
+                VirtualList.isAtBottom config state
+                    |> Expect.equal True
+        ]
+
+
+
+-- COMPUTE EMPTY
+
+
+computeEmptyTests : Test
+computeEmptyTests =
+    describe "compute with empty list"
+        [ test "returns empty range" <|
+            \() ->
+                let
+                    config =
+                        fixedConfig 0 40 200 0
+
+                    range =
+                        VirtualList.compute config
+                in
+                List.length range.items
+                    |> Expect.equal 0
+        , test "totalHeight is zero" <|
+            \() ->
+                let
+                    config =
+                        fixedConfig 0 40 200 0
+
+                    range =
+                        VirtualList.compute config
+                in
+                range.totalHeight
+                    |> Expect.equal 0
+        ]
+
+
+
+-- COMPUTE FIXED HEIGHT
+
+
+computeFixedTests : Test
+computeFixedTests =
+    describe "compute with fixed height"
+        [ test "computes correct total height" <|
+            \() ->
+                let
+                    config =
+                        fixedConfig 100 40 200 0
+
+                    range =
+                        VirtualList.compute config
+                in
+                range.totalHeight
+                    |> Expect.equal 4000
+        , test "renders only visible items when at top" <|
+            \() ->
+                let
+                    config =
+                        fixedConfig 100 40 200 0
+
+                    range =
+                        VirtualList.compute config
+                in
+                List.length range.items
+                    |> Expect.equal 5
+        , test "start index is 0 at top" <|
+            \() ->
+                let
+                    config =
+                        fixedConfig 100 40 200 0
+
+                    range =
+                        VirtualList.compute config
+                in
+                range.startIndex
+                    |> Expect.equal 0
+        , test "items have correct offsets" <|
+            \() ->
+                let
+                    config =
+                        fixedConfig 100 40 200 0
+
+                    range =
+                        VirtualList.compute config
+
+                    offsets =
+                        List.map .offset range.items
+                in
+                offsets
+                    |> Expect.equal [ 0, 40, 80, 120, 160 ]
+        , test "items have correct sizes" <|
+            \() ->
+                let
+                    config =
+                        fixedConfig 100 40 200 0
+
+                    range =
+                        VirtualList.compute config
+
+                    sizes =
+                        List.map .size range.items
+                in
+                sizes
+                    |> Expect.equal [ 40, 40, 40, 40, 40 ]
+        , test "scrolled down shows correct range" <|
+            \() ->
+                let
+                    event =
+                        { scrollTop = 400, scrollHeight = 4000, clientHeight = 200 }
+
+                    state =
+                        VirtualList.onScroll event VirtualList.init
+
+                    config =
+                        { items = Array.initialize 100 identity
+                        , itemHeight = VirtualList.Fixed 40
+                        , containerHeight = 200
+                        , overscan = 0
+                        , onScroll = identity
+                        , scrollState = state
+                        }
+
+                    range =
+                        VirtualList.compute config
+                in
+                range.visibleStartIndex
+                    |> Expect.equal 10
+        , test "items contain correct data" <|
+            \() ->
+                let
+                    config =
+                        fixedConfig 10 50 150 0
+
+                    range =
+                        VirtualList.compute config
+
+                    indices =
+                        List.map .index range.items
+                in
+                indices
+                    |> Expect.equal [ 0, 1, 2 ]
+        , test "single item list" <|
+            \() ->
+                let
+                    config =
+                        fixedConfig 1 40 200 0
+
+                    range =
+                        VirtualList.compute config
+                in
+                List.length range.items
+                    |> Expect.equal 1
+        , test "items fit exactly in container" <|
+            \() ->
+                let
+                    config =
+                        fixedConfig 5 40 200 0
+
+                    range =
+                        VirtualList.compute config
+                in
+                List.length range.items
+                    |> Expect.equal 5
+        ]
+
+
+
+-- COMPUTE VARIABLE HEIGHT
+
+
+computeVariableTests : Test
+computeVariableTests =
+    describe "compute with variable height"
+        [ test "computes correct total height" <|
+            \() ->
+                let
+                    items =
+                        Array.fromList [ 20, 30, 40, 50, 60 ]
+
+                    config =
+                        variableConfig items toFloat 200 0
+
+                    range =
+                        VirtualList.compute config
+                in
+                range.totalHeight
+                    |> Expect.equal 200
+        , test "renders visible items" <|
+            \() ->
+                let
+                    items =
+                        Array.fromList [ 50, 50, 50, 50 ]
+
+                    config =
+                        variableConfig items toFloat 100 0
+
+                    range =
+                        VirtualList.compute config
+                in
+                List.length range.items
+                    |> Expect.equal 2
+        , test "items have correct variable offsets" <|
+            \() ->
+                let
+                    items =
+                        Array.fromList [ 20, 30, 50, 40 ]
+
+                    config =
+                        variableConfig items toFloat 200 0
+
+                    range =
+                        VirtualList.compute config
+
+                    offsets =
+                        List.map .offset range.items
+                in
+                offsets
+                    |> Expect.equal [ 0, 20, 50, 100 ]
+        , test "items have correct variable sizes" <|
+            \() ->
+                let
+                    items =
+                        Array.fromList [ 20, 30, 50, 40 ]
+
+                    config =
+                        variableConfig items toFloat 200 0
+
+                    range =
+                        VirtualList.compute config
+
+                    sizes =
+                        List.map .size range.items
+                in
+                sizes
+                    |> Expect.equal [ 20, 30, 50, 40 ]
+        ]
+
+
+
+-- COMPUTE DYNAMIC
+
+
+computeDynamicTests : Test
+computeDynamicTests =
+    describe "compute with dynamic height"
+        [ test "uses default height of 50" <|
+            \() ->
+                let
+                    items =
+                        Array.initialize 20 identity
+
+                    config =
+                        { items = items
+                        , itemHeight = VirtualList.Dynamic
+                        , containerHeight = 200
+                        , overscan = 0
+                        , onScroll = identity
+                        , scrollState = VirtualList.init
+                        }
+
+                    range =
+                        VirtualList.compute config
+                in
+                range.totalHeight
+                    |> Expect.equal 1000
+        , test "renders correct number of items with default height" <|
+            \() ->
+                let
+                    items =
+                        Array.initialize 20 identity
+
+                    config =
+                        { items = items
+                        , itemHeight = VirtualList.Dynamic
+                        , containerHeight = 200
+                        , overscan = 0
+                        , onScroll = identity
+                        , scrollState = VirtualList.init
+                        }
+
+                    range =
+                        VirtualList.compute config
+                in
+                List.length range.items
+                    |> Expect.equal 4
+        ]
+
+
+
+-- COMPUTE OVERSCAN
+
+
+computeOverscanTests : Test
+computeOverscanTests =
+    describe "compute with overscan"
+        [ test "adds overscan items" <|
+            \() ->
+                let
+                    config =
+                        fixedConfig 100 40 200 3
+
+                    range =
+                        VirtualList.compute config
+                in
+                List.length range.items
+                    |> Expect.equal 8
+        , test "overscan items are marked as overscan" <|
+            \() ->
+                let
+                    config =
+                        fixedConfig 100 40 200 2
+
+                    range =
+                        VirtualList.compute config
+
+                    overscanItems =
+                        List.filter .isOverscan range.items
+                in
+                List.length overscanItems
+                    |> Expect.equal 2
+        , test "visible items are not marked as overscan" <|
+            \() ->
+                let
+                    config =
+                        fixedConfig 100 40 200 2
+
+                    range =
+                        VirtualList.compute config
+
+                    visibleItems =
+                        List.filter (\i -> not i.isOverscan) range.items
+                in
+                List.length visibleItems
+                    |> Expect.equal 5
+        , test "overscan does not exceed array bounds at start" <|
+            \() ->
+                let
+                    config =
+                        fixedConfig 100 40 200 10
+
+                    range =
+                        VirtualList.compute config
+                in
+                range.startIndex
+                    |> Expect.equal 0
+        , test "overscan does not exceed array bounds at end" <|
+            \() ->
+                let
+                    event =
+                        { scrollTop = 3800, scrollHeight = 4000, clientHeight = 200 }
+
+                    state =
+                        VirtualList.onScroll event VirtualList.init
+
+                    config =
+                        { items = Array.initialize 100 identity
+                        , itemHeight = VirtualList.Fixed 40
+                        , containerHeight = 200
+                        , overscan = 10
+                        , onScroll = identity
+                        , scrollState = state
+                        }
+
+                    range =
+                        VirtualList.compute config
+                in
+                range.endIndex
+                    |> Expect.equal 99
+        ]
+
+
+
+-- SCROLL EVENT
+
+
+scrollEventTests : Test
+scrollEventTests =
+    describe "onScroll"
+        [ test "updates scroll position" <|
+            \() ->
+                let
+                    event =
+                        { scrollTop = 250, scrollHeight = 5000, clientHeight = 300 }
+
+                    state =
+                        VirtualList.onScroll event VirtualList.init
+                in
+                VirtualList.scrollTop state
+                    |> Expect.equal 250
+        , test "replaces previous scroll position" <|
+            \() ->
+                let
+                    event1 =
+                        { scrollTop = 100, scrollHeight = 5000, clientHeight = 300 }
+
+                    event2 =
+                        { scrollTop = 200, scrollHeight = 5000, clientHeight = 300 }
+
+                    state =
+                        VirtualList.init
+                            |> VirtualList.onScroll event1
+                            |> VirtualList.onScroll event2
+                in
+                VirtualList.scrollTop state
+                    |> Expect.equal 200
+        ]
+
+
+
+-- EDGE CASES
+
+
+edgeCaseTests : Test
+edgeCaseTests =
+    describe "edge cases"
+        [ test "very large list computes correctly" <|
+            \() ->
+                let
+                    config =
+                        fixedConfig 100000 40 500 5
+
+                    range =
+                        VirtualList.compute config
+                in
+                range.totalHeight
+                    |> Expect.equal 4000000
+        , test "very small container height" <|
+            \() ->
+                let
+                    config =
+                        fixedConfig 10 40 10 0
+
+                    range =
+                        VirtualList.compute config
+                in
+                List.length range.items
+                    |> Expect.atLeast 1
+        , test "container larger than content" <|
+            \() ->
+                let
+                    config =
+                        fixedConfig 3 40 1000 0
+
+                    range =
+                        VirtualList.compute config
+                in
+                List.length range.items
+                    |> Expect.equal 3
+        ]
+
+
+
+-- HELPERS
+
+
+fixedConfig count itemH containerH overscan =
+    { items = Array.initialize count identity
+    , itemHeight = VirtualList.Fixed itemH
+    , containerHeight = containerH
+    , overscan = overscan
+    , onScroll = identity
+    , scrollState = VirtualList.init
+    }
+
+
+variableConfig items heightFn containerH overscan =
+    { items = items
+    , itemHeight = VirtualList.Variable heightFn
+    , containerHeight = containerH
+    , overscan = overscan
+    , onScroll = identity
+    , scrollState = VirtualList.init
+    }
