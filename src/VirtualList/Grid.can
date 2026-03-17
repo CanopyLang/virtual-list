@@ -338,7 +338,7 @@ findDimEndHelper dimFn endEdge idx count offset =
         max 0 (count - 1)
     else
         if offset >= endEdge then
-            idx
+            max 0 (idx - 1)
         else
             findDimEndHelper dimFn endEdge (idx + 1) count (offset + dimFn idx)
 

@@ -149,13 +149,17 @@ clearRangeTests =
                             |> M.recordMeasurement 4 50
                             |> M.clearRange 1 3
                 in
-                ( M.getMeasurement 0 cache
-                , M.getMeasurement 1 cache
-                , M.getMeasurement 2 cache
-                , M.getMeasurement 3 cache
-                , M.getMeasurement 4 cache
-                )
-                    |> Expect.equal ( Just 10, Nothing, Nothing, Nothing, Just 50 )
+                let
+                    results =
+                        [ M.getMeasurement 0 cache
+                        , M.getMeasurement 1 cache
+                        , M.getMeasurement 2 cache
+                        , M.getMeasurement 3 cache
+                        , M.getMeasurement 4 cache
+                        ]
+                in
+                results
+                    |> Expect.equal [ Just 10, Nothing, Nothing, Nothing, Just 50 ]
         , test "clearing empty range is no-op" <|
             \() ->
                 let

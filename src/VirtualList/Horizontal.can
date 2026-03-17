@@ -297,7 +297,7 @@ findHEndLinear widthFn items rightEdge idx count offset =
         max 0 (count - 1)
     else
         if offset >= rightEdge then
-            idx
+            max 0 (idx - 1)
         else
             findHEndLinear widthFn items rightEdge (idx + 1) count (offset + widthFn idx items)
 

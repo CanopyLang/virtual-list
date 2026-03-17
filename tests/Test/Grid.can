@@ -381,7 +381,7 @@ edgeCaseTests =
 -- HELPERS
 
 
-fixedGridConfig : Int -> Int -> Float -> Float -> Float -> Float -> Int -> Int -> Grid.Config Int (Grid.GridScrollEvent -> Grid.GridScrollEvent)
+fixedGridConfig : Int -> Int -> Float -> Float -> Float -> Float -> Int -> Int -> Grid.Config Int Grid.GridScrollEvent
 fixedGridConfig rows cols rowH colW containerH containerW overscanR overscanC =
     { items = Array.initialize rows (\r -> Array.initialize cols (\c -> r * cols + c))
     , rowHeight = Grid.FixedRowHeight rowH

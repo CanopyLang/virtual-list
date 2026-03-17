@@ -184,7 +184,7 @@ savePositionTests =
 -- HELPERS
 
 
-fixedConfig : Int -> Float -> Float -> Int -> VirtualList.Config Int (VirtualList.ScrollEvent -> VirtualList.ScrollEvent)
+fixedConfig : Int -> Float -> Float -> Int -> VirtualList.Config Int VirtualList.ScrollEvent
 fixedConfig count itemH containerH overscan =
     { items = Array.initialize count identity
     , itemHeight = VirtualList.Fixed itemH
