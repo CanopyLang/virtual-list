@@ -26,6 +26,38 @@ The virtualizer is headless: it computes positions and visible ranges,
 but does not dictate markup or styling. You provide your own item renderer
 and container attributes.
 
+
+# Height Mode Tradeoffs
+
+Choose `ItemHeight` based on your list's characteristics:
+
+**`Fixed Float`** — All items have the same pixel height.
+
+  - O(1) range computation regardless of list length.
+  - Recommended for the vast majority of lists.
+  - Use this unless items genuinely differ in height.
+
+**`Variable (data -> Float)`** — Each item reports its own height via a
+  pure function computed from the item data (e.g., text length, image
+  aspect ratio).
+
+  - O(n) to build the prefix-sum table on initial render, then O(log n)
+    per scroll event via binary search.
+  - No DOM measurement required — heights are known ahead of render.
+  - Good for lists with a few discrete height classes (e.g., compact vs.
+    expanded rows).
+
+**`Dynamic`** — Heights are measured from the DOM after render.
+
+  - Requires a two-pass render: render estimate → measure → re-render
+    with corrected heights.
+  - O(n) DOM reads on layout, which can be slow for large lists.
+  - Use only when item height is truly unknowable before render (e.g.,
+    user-supplied rich text with embedded images).
+  - Avoid for lists over a few hundred items unless measurements are
+    cached across renders.
+
+
 # State
 @docs State, init, onScroll, scrollTop, isAtTop, isAtBottom
 
