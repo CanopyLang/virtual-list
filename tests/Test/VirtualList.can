@@ -28,6 +28,8 @@ tests =
         , computeOverscanTests
         , scrollEventTests
         , edgeCaseTests
+        , offsetForIndexTests
+        , heightAtIndexTests
         ]
 
 
@@ -612,3 +614,133 @@ variableConfig items heightFn containerH overscan =
     , onScroll = identity
     , scrollState = VirtualList.init
     }
+
+
+offsetForIndexTests : Test
+offsetForIndexTests =
+    describe "offsetForIndex"
+        [ test "fixed height: index 0 has offset 0" <|
+            \() ->
+                let
+                    config =
+                        fixedConfig 10 40 200 0
+                in
+                VirtualList.offsetForIndex config 0
+                    |> Expect.equal 0
+        , test "fixed height: index 1 has offset equal to item height" <|
+            \() ->
+                let
+                    config =
+                        fixedConfig 10 40 200 0
+                in
+                VirtualList.offsetForIndex config 1
+                    |> Expect.equal 40
+        , test "fixed height: index 5 has offset 5 * itemHeight" <|
+            \() ->
+                let
+                    config =
+                        fixedConfig 10 40 200 0
+                in
+                VirtualList.offsetForIndex config 5
+                    |> Expect.equal 200
+        , test "variable height: index 0 has offset 0" <|
+            \() ->
+                let
+                    items =
+                        Array.fromList [ 30, 50, 20, 60 ]
+
+                    config =
+                        variableConfig items toFloat 200 0
+                in
+                VirtualList.offsetForIndex config 0
+                    |> Expect.equal 0
+        , test "variable height: index 1 offset equals height of item 0" <|
+            \() ->
+                let
+                    items =
+                        Array.fromList [ 30, 50, 20, 60 ]
+
+                    config =
+                        variableConfig items toFloat 200 0
+                in
+                VirtualList.offsetForIndex config 1
+                    |> Expect.equal 30
+        , test "variable height: index 2 offset equals sum of item 0 and 1 heights" <|
+            \() ->
+                let
+                    items =
+                        Array.fromList [ 30, 50, 20, 60 ]
+
+                    config =
+                        variableConfig items toFloat 200 0
+                in
+                VirtualList.offsetForIndex config 2
+                    |> Expect.equal 80
+        , test "dynamic height: index 0 has offset 0" <|
+            \() ->
+                let
+                    config =
+                        { items = Array.fromList [ 1, 2, 3 ]
+                        , itemHeight = VirtualList.Dynamic
+                        , containerHeight = 200
+                        , overscan = 0
+                        , onScroll = identity
+                        , scrollState = VirtualList.init
+                        }
+                in
+                VirtualList.offsetForIndex config 0
+                    |> Expect.equal 0
+        , test "dynamic height: index 2 uses 50px estimate per item" <|
+            \() ->
+                let
+                    config =
+                        { items = Array.fromList [ 1, 2, 3 ]
+                        , itemHeight = VirtualList.Dynamic
+                        , containerHeight = 200
+                        , overscan = 0
+                        , onScroll = identity
+                        , scrollState = VirtualList.init
+                        }
+                in
+                VirtualList.offsetForIndex config 2
+                    |> Expect.equal 100
+        ]
+
+
+heightAtIndexTests : Test
+heightAtIndexTests =
+    describe "heightAtIndex"
+        [ test "fixed height returns fixed value" <|
+            \() ->
+                let
+                    config =
+                        fixedConfig 10 40 200 0
+                in
+                VirtualList.heightAtIndex config 3
+                    |> Expect.equal 40
+        , test "variable height returns item-specific height" <|
+            \() ->
+                let
+                    items =
+                        Array.fromList [ 30, 50, 20, 60 ]
+
+                    config =
+                        variableConfig items toFloat 200 0
+                in
+                VirtualList.heightAtIndex config 2
+                    |> Expect.equal 20
+        , test "dynamic height returns 50px estimate" <|
+            \() ->
+                let
+                    config =
+                        { items = Array.fromList [ 1, 2, 3 ]
+                        , itemHeight = VirtualList.Dynamic
+                        , containerHeight = 200
+                        , overscan = 0
+                        , onScroll = identity
+                        , scrollState = VirtualList.init
+                        }
+                in
+                VirtualList.heightAtIndex config 0
+                    |> Expect.equal 50
+        ]

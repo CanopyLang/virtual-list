@@ -4,6 +4,7 @@ module VirtualList.Scroll exposing
     , ScrollBehavior(..)
     , SavedPosition
     , scrollTo
+    , scrollToIndex
     , savePosition
     , restorePosition
     )
@@ -16,7 +17,7 @@ with configurable alignment and animation behavior. Also supports
 saving and restoring scroll positions for SPA navigation.
 
 # Scroll Commands
-@docs scrollTo, ScrollTarget, ScrollAlignment, ScrollBehavior
+@docs scrollTo, scrollToIndex, ScrollTarget, ScrollAlignment, ScrollBehavior
 
 # Position Save/Restore
 @docs savePosition, SavedPosition, restorePosition
@@ -118,6 +119,83 @@ scrollTo request fallback =
         |> Task.attempt (\_ -> fallback)
 
 
+{-| Scroll a virtual list container to bring the item at the given index into view.
+
+Unlike `scrollTo { target = ToIndex _ }`, this function correctly computes the
+item's pixel offset from the Config, handling Fixed, Variable, and Dynamic heights.
+
+`Dynamic` heights use a 50 px estimate per item (the same default as the renderer);
+measure actual heights with `VirtualList.Measurement` for precision.
+
+    scrollToIndex
+        { index = 42
+        , alignment = Center
+        , behavior = Smooth
+        , containerId = "my-list"
+        }
+        config
+        NoOp
+-}
+scrollToIndex :
+    { index : Int
+    , alignment : ScrollAlignment
+    , behavior : ScrollBehavior
+    , containerId : String
+    }
+    -> Config data msg
+    -> msg
+    -> Cmd msg
+scrollToIndex request config fallback =
+    let
+        itemTop =
+            VirtualList.offsetForIndex config request.index
+
+        itemH =
+            VirtualList.heightAtIndex config request.index
+
+        currentScroll =
+            VirtualList.scrollTop config.scrollState
+
+        containerH =
+            config.containerHeight
+
+        targetOffset =
+            computeAlignedOffset request.alignment itemTop itemH containerH currentScroll
+    in
+    Dom.setViewportOf request.containerId 0 (max 0 targetOffset)
+        |> Task.attempt (\_ -> fallback)
+
+
+computeAlignedOffset : ScrollAlignment -> Float -> Float -> Float -> Float -> Float
+computeAlignedOffset alignment itemTop itemH containerH currentScroll =
+    case alignment of
+        Start ->
+            itemTop
+
+        Center ->
+            itemTop - (containerH / 2) + (itemH / 2)
+
+        End ->
+            itemTop + itemH - containerH
+
+        Auto ->
+            let
+                itemBottom =
+                    itemTop + itemH
+
+                viewportBottom =
+                    currentScroll + containerH
+            in
+            if itemTop >= currentScroll && itemBottom <= viewportBottom then
+                currentScroll
+
+            else if itemTop < currentScroll then
+                itemTop
+
+            else
+                itemTop + itemH - containerH
+
+
 resolveScrollOffset :
     { target : ScrollTarget
     , alignment : ScrollAlignment
@@ -137,6 +215,8 @@ resolveScrollOffset request =
             99999999
 
         ToIndex _ ->
+            -- Use scrollToIndex for index-based scrolling; this case cannot
+            -- compute the offset without a Config.
             0
 
 

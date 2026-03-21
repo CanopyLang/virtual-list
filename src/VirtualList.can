@@ -13,6 +13,8 @@ module VirtualList exposing
     , scrollTop
     , isAtTop
     , isAtBottom
+    , offsetForIndex
+    , heightAtIndex
     )
 
 
@@ -69,6 +71,9 @@ Choose `ItemHeight` based on your list's characteristics:
 
 # Rendering
 @docs view, viewKeyed
+
+# Item Geometry
+@docs offsetForIndex, heightAtIndex
 
 -}
 
@@ -130,6 +135,35 @@ isAtBottom config (State s) =
             totalH - config.containerHeight
     in
     s.scrollOffset >= maxScroll - 1
+
+
+{-| Compute the pixel offset (distance from the top of the scroll area)
+for the item at the given index.
+
+For `Fixed` and `Variable` heights this is an exact computation.
+For `Dynamic` heights it uses the 50px estimated height per item.
+Use this with `VirtualList.Scroll.scrollToIndex` or your own scroll logic.
+
+    VirtualList.offsetForIndex config 42
+-}
+offsetForIndex : Config data msg -> Int -> Float
+offsetForIndex config index =
+    let
+        heightFn =
+            resolveHeightFn config
+    in
+    computeOffsetAt heightFn config.items index
+
+
+{-| Compute the height of the item at the given index.
+
+For `Fixed` heights this is the fixed height.
+For `Variable` heights this calls the height function.
+For `Dynamic` heights this returns the 50px estimate.
+-}
+heightAtIndex : Config data msg -> Int -> Float
+heightAtIndex config index =
+    resolveHeightFn config index config.items
 
 
 -- CONFIGURATION
